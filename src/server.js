@@ -52,11 +52,11 @@ app.use(helmet({
 app.use(express.json());
 
 // ── Session middleware — Firestore-backed (survives restarts + redeploys) ─────
-// Uses admin.firestore() so credentials come from Firebase Admin (FIREBASE_SERVICE_ACCOUNT),
-// avoiding the "Unable to detect Project Id" error from @google-cloud/firestore's new Firestore().
-const { FirestoreStore } = require('@google-cloud/connect-firestore');
+// Custom store built on firebase-admin to avoid version-mismatch issues with
+// @google-cloud/connect-firestore vs firebase-admin's internal firestore copy.
+const { FirestoreSessionStore } = require('./sessionStore');
 app.use(session({
-  store: new FirestoreStore({ dataset: admin.firestore(), kind: 'express-sessions' }),
+  store: new FirestoreSessionStore(admin.firestore(), 'express-sessions'),
   secret:            process.env.SESSION_SECRET,
   resave:            false,
   saveUninitialized: false,
