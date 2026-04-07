@@ -426,10 +426,13 @@ app.get('/api/google/meetings', requireAuth, async (req, res) => {
   if (!req.session.googleTokens) return res.status(401).json({ error: 'No Google tokens' });
   try {
     const meetings = await getUpcomingMeetings(req.session.googleTokens);
-    res.json(meetings);
+    // Frontend expects { meetings: [...] }
+    res.json({ meetings });
   } catch (err) {
-    console.error('[CALENDAR]', err.message);
-    res.status(500).json({ error: 'Failed to fetch meetings.' });
+    // Surface the real error so we can see it in the browser
+    const detail = err.response?.data?.error?.message || err.message;
+    console.error('[CALENDAR]', detail);
+    res.status(500).json({ error: detail });
   }
 });
 
