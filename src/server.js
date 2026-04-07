@@ -421,6 +421,91 @@ app.get('/calendar/meetings', requireAuth, async (req, res) => {
   }
 });
 
+// ── /api/google/* — frontend-facing Google routes ────────────────────────────
+app.get('/api/google/meetings', requireAuth, async (req, res) => {
+  if (!req.session.googleTokens) return res.status(401).json({ error: 'No Google tokens' });
+  try {
+    const meetings = await getUpcomingMeetings(req.session.googleTokens);
+    res.json(meetings);
+  } catch (err) {
+    console.error('[CALENDAR]', err.message);
+    res.status(500).json({ error: 'Failed to fetch meetings.' });
+  }
+});
+
+app.get('/api/google/profile', requireAuth, async (req, res) => {
+  try {
+    const firstName = req.session.firstName
+      || (req.session.googleTokens ? await getUserFirstName(req.session.googleTokens).catch(() => null) : null)
+      || deriveFirstName(req.session.userEmail);
+    res.json({ firstName, email: req.session.userEmail });
+  } catch (err) {
+    res.json({ firstName: null, email: req.session.userEmail || null });
+  }
+});
+
+app.post('/api/google/disconnect', requireAuth, (req, res) => {
+  req.session.googleTokens = null;
+  req.session.save(() => res.json({ ok: true }));
+});
+
+// ── /api/admin/* — admin-only routes ─────────────────────────────────────────
+app.get('/api/admin/stats', requireAdmin, async (req, res) => {
+  try {
+    const [allUsers, allBots] = await Promise.all([getAllUsers(), getAllBotRecords()]);
+    const users = allUsers.map(u => {
+      const userBots = allBots.filter(b => (b.userEmail || '').toLowerCase() === u.email.toLowerCase());
+      return {
+        email:             u.email,
+        firstName:         u.firstName || null,
+        active:            !!u.active,
+        firstSeen:         u.firstSeen || null,
+        lastSeen:          u.lastSeen || null,
+        meetings:          userBots.length,
+        summaries:         userBots.filter(b => b.summary).length,
+        minutes:           0,           // populated when bot container reports duration
+        transcriptionCost: 0,           // open-source: no per-minute billing
+        storageCost:       0,           // open-source: GCS cost tracked separately
+        recordingsStored:  userBots.filter(b => b.storageKey).length,
+      };
+    });
+    res.json({ users });
+  } catch (err) {
+    console.error('[ADMIN STATS]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/bots', requireAdmin, async (req, res) => {
+  try {
+    const allBots = await getAllBotRecords();
+    const bots = allBots.map(b => ({
+      ...b,
+      daysStored:      b.createdAt ? (Date.now() - new Date(b.createdAt).getTime()) / 86400000 : 0,
+      durationMinutes: b.durationMinutes || 0,
+      totalCost:       0,  // open-source: no per-minute billing
+    }));
+    res.json({ bots });
+  } catch (err) {
+    console.error('[ADMIN BOTS]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/bot/:botId', requireAdmin, async (req, res) => {
+  const { botId } = req.params;
+  try {
+    await deleteBot(botId).catch(e => console.warn('[ADMIN DELETE] Bot service:', e.message));
+    if (firebaseConfigured()) {
+      await deleteBotRecording(botId).catch(e => console.warn('[ADMIN DELETE] Storage:', e.message));
+    }
+    await saveBotRecord(botId, { status: 'deleted', deletedAt: new Date().toISOString() });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Admin — user list ─────────────────────────────────────────────────────────
 app.get('/api/admin/users', requireAdmin, async (req, res) => {
   try {
