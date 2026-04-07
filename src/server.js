@@ -365,7 +365,16 @@ app.get('/auth/google/callback', async (req, res) => {
     req.session.firstName    = firstName;
     registerUser(email, firstName, true);
     console.log(`[AUTH] Signed in: ${email}`);
-    res.redirect('/');
+    // Explicitly save session before redirecting — Firestore writes are async,
+    // so without this the browser follows the redirect before the session is persisted.
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        console.error('[AUTH] Session save failed:', saveErr.message);
+        return res.status(500).send('Authentication failed — session could not be saved.');
+      }
+      res.redirect('/');
+    });
+    return;
   } catch (err) {
     console.error('[AUTH ERROR]', err.message);
     res.status(500).send('Authentication failed.');
