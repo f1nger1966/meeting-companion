@@ -1,6 +1,25 @@
 require('dotenv').config();
 if (!process.env.SESSION_SECRET) throw new Error('SESSION_SECRET env var is required — generate with: openssl rand -hex 32');
 
+// ── Firebase Admin — initialise FIRST so session store can use admin.firestore() ──
+const admin = require('firebase-admin');
+if (!admin.apps.length) {
+  let credential;
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    credential = admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT));
+  } else if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+    credential = admin.credential.cert({
+      projectId:   process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey:  process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    });
+  } else {
+    throw new Error('Firebase credentials not configured. Set FIREBASE_SERVICE_ACCOUNT or FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY.');
+  }
+  admin.initializeApp({ credential, storageBucket: process.env.FIREBASE_STORAGE_BUCKET });
+  console.log('[Firebase] Admin initialised — project:', process.env.FIREBASE_PROJECT_ID || 'from service account');
+}
+
 const crypto    = require('crypto');
 const express   = require('express');
 const helmet    = require('helmet');
@@ -33,10 +52,11 @@ app.use(helmet({
 app.use(express.json());
 
 // ── Session middleware — Firestore-backed (survives restarts + redeploys) ─────
+// Uses admin.firestore() so credentials come from Firebase Admin (FIREBASE_SERVICE_ACCOUNT),
+// avoiding the "Unable to detect Project Id" error from @google-cloud/firestore's new Firestore().
 const { FirestoreStore } = require('@google-cloud/connect-firestore');
-const { Firestore } = require('@google-cloud/firestore');
 app.use(session({
-  store: new FirestoreStore({ dataset: new Firestore(), kind: 'express-sessions' }),
+  store: new FirestoreStore({ dataset: admin.firestore(), kind: 'express-sessions' }),
   secret:            process.env.SESSION_SECRET,
   resave:            false,
   saveUninitialized: false,
@@ -174,12 +194,10 @@ app.get('/bot/:botId/recording', requireAuth, async (req, res) => {
   const owner = (local?.userEmail || '').toLowerCase();
   if (owner && owner !== req.session.userEmail.toLowerCase()) return res.status(403).json({ error: 'Access denied.' });
   try {
-    // Generate a fresh GCS signed URL from the stored storageKey
     if (local?.storageKey && firebaseConfigured()) {
       const url = await getSignedUrl(local.storageKey);
       return res.json({ url });
     }
-    // Fallback: ask bot container directly (pre-storage-migration path)
     const url = await getBotRecordingUrl(botId);
     if (!url) return res.status(404).json({ error: 'No recording available yet.' });
     res.json({ url });
@@ -230,18 +248,14 @@ app.delete('/bot/:botId', requireAuth, async (req, res) => {
   const local = await getBotRecord(botId);
   const owner = (local?.userEmail || '').toLowerCase();
   const requester = req.session.userEmail.toLowerCase();
-  // Only the owner or admin can delete; admin cannot read content but can delete
   if (owner && owner !== requester && requester !== ADMIN_EMAIL)
     return res.status(403).json({ error: 'Access denied.' });
 
   try {
-    // Delete from bot service
     await deleteBot(botId).catch(e => console.warn('[DELETE] Bot service delete failed:', e.message));
-    // Delete recordings from Firebase Storage
     if (firebaseConfigured()) {
       await deleteBotRecording(botId).catch(e => console.warn('[DELETE] Storage delete failed:', e.message));
     }
-    // Remove Firestore record
     await saveBotRecord(botId, { status: 'deleted', deletedAt: new Date().toISOString() });
     res.json({ ok: true });
   } catch (err) {
@@ -255,13 +269,10 @@ app.get('/bots', requireAuth, async (req, res) => {
   try {
     const allRecords = await getAllBotRecords();
     const isAdmin = sessionEmail === ADMIN_EMAIL;
-
-    // Filter to records owned by this user (admin sees all)
     const owned = allRecords.filter(r => {
       const owner = (r.userEmail || '').toLowerCase();
       return isAdmin || owner === sessionEmail;
     });
-
     res.json({ bots: owned });
   } catch (err) {
     console.error('[BOTS LIST]', err.message);
@@ -271,7 +282,6 @@ app.get('/bots', requireAuth, async (req, res) => {
 
 // ── Webhook receiver — screenappai/meeting-bot events ────────────────────────
 app.post('/webhook/bot', (req, res) => {
-  // HMAC signature verification (BOT_WEBHOOK_SECRET shared with bot container)
   const webhookSecret = process.env.BOT_WEBHOOK_SECRET;
   if (webhookSecret) {
     const sig      = req.headers['x-bot-signature'];
@@ -288,7 +298,6 @@ app.post('/webhook/bot', (req, res) => {
 
   if (!botId) return res.sendStatus(200);
 
-  // Status event map — mirrors the Recall.ai event schema where possible
   const STATUS_EVENT_MAP = {
     'bot.done':                        'done',
     'bot.call_ended':                  'call_ended',
@@ -298,18 +307,16 @@ app.post('/webhook/bot', (req, res) => {
     'bot.in_waiting_room':             'in_waiting_room',
     'bot.joining_call':                'joining_call',
     'bot.ready':                       'ready',
-    'bot.recording_permission_denied': 'recording_permission_denied',  // Google Meet consent denied
+    'bot.recording_permission_denied': 'recording_permission_denied',
   };
 
   (async () => {
     try {
-      // Status updates
       if (STATUS_EVENT_MAP[event.event]) {
         await saveBotRecord(botId, { status: STATUS_EVENT_MAP[event.event] });
         console.log(`[STATUS] bot=${botId} → ${STATUS_EVENT_MAP[event.event]}`);
       }
 
-      // Live transcript lines (streamed during call)
       if (event.event === 'transcript.data') {
         const words   = event.data?.words || [];
         const speaker = event.data?.speaker || 'Unknown';
@@ -322,7 +329,6 @@ app.post('/webhook/bot', (req, res) => {
         }
       }
 
-      // Recording complete — download from bot container and store in GCS
       if (event.event === 'recording.done') {
         await saveBotRecord(botId, { recordingDone: true });
         const recordingUrl = event.data?.recording_url;
@@ -404,7 +410,6 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 async function start() {
-  // Seed user registry from Firestore (async in the open-source stack)
   await seedUserRegistry(userRegistry);
 
   app.listen(PORT, () => {
