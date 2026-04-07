@@ -23,15 +23,20 @@ class FirestoreSessionStore extends Store {
 
   /** Return session data or null (called on every request) */
   get(sid, callback) {
+    console.log('[SESSION] get →', sid);
     this.db.collection(this.col).doc(sid).get()
       .then(doc => {
-        if (!doc.exists) return callback(null, null);
+        if (!doc.exists) {
+          console.log('[SESSION] get → NOT FOUND in Firestore:', sid);
+          return callback(null, null);
+        }
         const { sess, expires } = doc.data();
         if (expires && Date.now() > expires) {
-          // Expired — delete quietly and treat as missing
+          console.log('[SESSION] get → EXPIRED:', sid);
           this.destroy(sid, () => {});
           return callback(null, null);
         }
+        console.log('[SESSION] get → FOUND, userEmail:', sess?.userEmail);
         callback(null, sess);
       })
       .catch(err => {

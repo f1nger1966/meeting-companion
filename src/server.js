@@ -399,6 +399,18 @@ app.get('/auth/status', (req, res) => {
   });
 });
 
+// ── Google status — called by frontend to decide landing vs app shell ─────────
+// Returns authenticated (has session identity) + connected (has calendar tokens)
+app.get('/api/google/status', (req, res) => {
+  res.json({
+    authenticated: !!req.session.userEmail,
+    connected:     !!(req.session.googleTokens && req.session.userEmail),
+    isAdmin:       (req.session.userEmail || '').toLowerCase() === ADMIN_EMAIL,
+    email:         req.session.userEmail || null,
+    firstName:     req.session.firstName || null,
+  });
+});
+
 // ── Google Calendar ───────────────────────────────────────────────────────────
 app.get('/calendar/meetings', requireAuth, async (req, res) => {
   if (!req.session.googleTokens) return res.status(401).json({ error: 'No Google tokens' });
