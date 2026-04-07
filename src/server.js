@@ -32,10 +32,10 @@ app.use(helmet({
 
 app.use(express.json());
 
-// ── Session middleware — Firestore-backed (survives restarts + redeploys) ─────
-const { FirestoreStore } = require('connect-firestore');
+// ── Session middleware ───────────────────────────────────────────────────────
+// TODO Phase 4: replace with @google-cloud/connect-firestore so sessions
+// survive container restarts. In-memory is fine for testing.
 app.use(session({
-  store: new FirestoreStore({ dataset: null, kind: 'express-sessions' }),
   secret:            process.env.SESSION_SECRET,
   resave:            false,
   saveUninitialized: false,
