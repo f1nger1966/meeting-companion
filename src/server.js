@@ -376,11 +376,9 @@ app.get('/auth/google/callback', async (req, res) => {
     });
     return;
   } catch (err) {
-    // Log full error detail — includes Google's error code (e.g. redirect_uri_mismatch, invalid_grant)
     const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
     console.error('[AUTH ERROR]', detail);
-    // Temporarily show the real error so we can diagnose without Railway log access
-    res.status(500).send(`Authentication failed: ${detail}`);
+    res.status(500).send('Authentication failed. Please try again.');
   }
 });
 
