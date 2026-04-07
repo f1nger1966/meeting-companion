@@ -46,7 +46,10 @@ class FirestoreSessionStore extends Store {
       ? new Date(sess.cookie.expires).getTime()
       : Date.now() + SESSION_TTL_MS;
 
-    this.db.collection(this.col).doc(sid).set({ sess, expires, updatedAt: Date.now() })
+    // Strip the Session prototype — Firestore rejects objects created with `new`
+    const plainSess = JSON.parse(JSON.stringify(sess));
+
+    this.db.collection(this.col).doc(sid).set({ sess: plainSess, expires, updatedAt: Date.now() })
       .then(() => callback(null))
       .catch(err => {
         console.error('[SESSION] set error:', err.message);
