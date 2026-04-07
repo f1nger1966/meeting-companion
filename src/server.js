@@ -280,67 +280,66 @@ app.get('/bots', requireAuth, async (req, res) => {
   }
 });
 
-// ── Webhook receiver — screenappai/meeting-bot events ────────────────────────
+// ── Webhook receiver — meeting-bot-core completion events ────────────────────
+// Payload: { recordingId, meetingLink, status, blobUrl, timestamp, metadata }
+// Signature header: X-Webhook-Signature (HMAC-SHA256, matches BOT_WEBHOOK_SECRET)
 app.post('/webhook/bot', (req, res) => {
   const webhookSecret = process.env.BOT_WEBHOOK_SECRET;
   if (webhookSecret) {
-    const sig      = req.headers['x-bot-signature'];
-    const expected = crypto.createHmac('sha256', webhookSecret).update(JSON.stringify(req.body)).digest('hex');
+    const sig      = req.headers['x-webhook-signature'];
+    const body     = JSON.stringify(req.body);
+    const expected = crypto.createHmac('sha256', webhookSecret).update(body).digest('hex');
     if (!sig || sig !== expected) {
       console.warn('[WEBHOOK] Signature mismatch — request rejected');
       return res.sendStatus(401);
     }
   }
 
-  const event = req.body;
-  const botId = event.bot_id || event.data?.bot_id;
-  console.log(`[WEBHOOK] event=${event.event} bot=${botId}`);
+  const payload = req.body;
+  // recordingId is the UUID botId we generated and passed in createBot()
+  const botId = payload.recordingId;
+  console.log(`[WEBHOOK] status=${payload.status} bot=${botId}`);
 
   if (!botId) return res.sendStatus(200);
 
-  const STATUS_EVENT_MAP = {
-    'bot.done':                        'done',
-    'bot.call_ended':                  'call_ended',
-    'bot.fatal':                       'fatal',
-    'bot.in_call_recording':           'in_call_recording',
-    'bot.in_call_not_recording':       'in_call_not_recording',
-    'bot.in_waiting_room':             'in_waiting_room',
-    'bot.joining_call':                'joining_call',
-    'bot.ready':                       'ready',
-    'bot.recording_permission_denied': 'recording_permission_denied',
-  };
-
   (async () => {
     try {
-      if (STATUS_EVENT_MAP[event.event]) {
-        await saveBotRecord(botId, { status: STATUS_EVENT_MAP[event.event] });
-        console.log(`[STATUS] bot=${botId} → ${STATUS_EVENT_MAP[event.event]}`);
-      }
+      if (payload.status === 'completed') {
+        await saveBotRecord(botId, { status: 'done', recordingDone: true });
+        console.log(`[STATUS] bot=${botId} → done`);
 
-      if (event.event === 'transcript.data') {
-        const words   = event.data?.words || [];
-        const speaker = event.data?.speaker || 'Unknown';
-        const text    = words.map(w => w.text).join(' ');
-        if (text) {
-          const record = (await getBotRecord(botId)) || {};
-          const lines  = record.transcriptLines || [];
-          lines.push({ speaker, text, ts: new Date().toISOString() });
-          await saveBotRecord(botId, { transcriptLines: lines });
-        }
-      }
+        if (payload.blobUrl) {
+          // If the bot used our GCS bucket (STORAGE_PROVIDER=gcs), the file is
+          // already there — extract the object path as the storageKey directly.
+          const bucket       = process.env.FIREBASE_STORAGE_BUCKET || '';
+          const httpsBase    = `https://storage.googleapis.com/${bucket}/`;
+          const gsBase       = `gs://${bucket}/`;
+          let storageKey     = null;
 
-      if (event.event === 'recording.done') {
-        await saveBotRecord(botId, { recordingDone: true });
-        const recordingUrl = event.data?.recording_url;
-        if (recordingUrl && firebaseConfigured()) {
-          try {
-            const { storagePath } = await downloadAndStore(botId, recordingUrl);
-            await saveBotRecord(botId, { storageKey: storagePath, recordingUrl: null });
-            console.log(`[WEBHOOK] Recording stored at ${storagePath}`);
-          } catch (e) {
-            console.error('[WEBHOOK] Recording storage failed:', e.message);
+          if (bucket && payload.blobUrl.startsWith(httpsBase)) {
+            storageKey = decodeURIComponent(payload.blobUrl.slice(httpsBase.length).split('?')[0]);
+          } else if (bucket && payload.blobUrl.startsWith(gsBase)) {
+            storageKey = payload.blobUrl.slice(gsBase.length);
+          }
+
+          if (storageKey) {
+            await saveBotRecord(botId, { storageKey });
+            console.log(`[WEBHOOK] GCS key stored: ${storageKey}`);
+          } else if (firebaseConfigured()) {
+            // External URL — download and re-store in Firebase Storage
+            try {
+              const { storagePath } = await downloadAndStore(botId, payload.blobUrl);
+              await saveBotRecord(botId, { storageKey: storagePath });
+              console.log(`[WEBHOOK] Recording downloaded and stored: ${storagePath}`);
+            } catch (e) {
+              console.error('[WEBHOOK] Recording storage failed:', e.message);
+              await saveBotRecord(botId, { recordingUrl: payload.blobUrl });
+            }
           }
         }
+      } else {
+        await saveBotRecord(botId, { status: payload.status });
+        console.log(`[STATUS] bot=${botId} → ${payload.status}`);
       }
     } catch (e) {
       console.error('[WEBHOOK] Handler error:', e.message);

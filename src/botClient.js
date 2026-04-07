@@ -1,23 +1,29 @@
 /**
- * botClient.js — HTTP client for the self-hosted screenappai/meeting-bot container.
+ * botClient.js — HTTP client for the self-hosted meeting-bot-core container.
  *
- * Drop-in replacement for recallClient.js. Exports the same interface so
- * server.js requires no structural changes beyond the import path.
+ * Drop-in replacement for recallClient.js with the same exported interface.
+ *
+ * Bot API (screenappai/meeting-bot):
+ *   POST /google/join      — join a Google Meet (fire-and-forget, returns 202)
+ *   POST /microsoft/join   — join a Teams meeting
+ *   POST /zoom/join        — join a Zoom meeting
+ *   GET  /isbusy           — {success:true, data: 0|1}
+ *   GET  /health           — health check
+ *
+ * No per-bot status or delete endpoint. The bot manages its own lifecycle.
+ * Recording completion is notified via webhook to /webhook/bot.
  *
  * Environment variables:
- *   BOT_SERVICE_URL      Base URL of the deployed screenappai/meeting-bot container
- *                        e.g. https://meeting-bot-core.railway.app
- *
- * TODO (Phase 2): Wire each function to the actual screenappai/meeting-bot REST API.
- * The bot container's API endpoints will differ from Recall.ai's — update the
- * axios calls below once the bot container is deployed and its API is confirmed.
- *
- * Reference: https://github.com/screenappai/meeting-bot
+ *   BOT_SERVICE_URL    Base URL of the deployed meeting-bot-core container
+ *   BOT_BEARER_TOKEN   Shared token sent in bot join requests (any non-empty string)
  */
 
-const axios = require('axios');
+'use strict';
 
-const BOT_SERVICE_URL = process.env.BOT_SERVICE_URL || 'http://localhost:4000';
+const crypto = require('crypto');
+const axios  = require('axios');
+
+const BOT_SERVICE_URL = process.env.BOT_SERVICE_URL || 'http://localhost:3000';
 
 const client = axios.create({
   baseURL: BOT_SERVICE_URL,
@@ -25,10 +31,7 @@ const client = axios.create({
   timeout: 15000,
 });
 
-// ── Platform detection helper ─────────────────────────────────────────────────
-// Determines which recording config to request from the bot based on meeting URL.
-// Google Meet: no meeting_captions support → video_mixed_layout MP4 only (+ Deepgram if key set)
-// Teams / Zoom: native caption API available
+// ── Platform detection ────────────────────────────────────────────────────────
 function detectPlatform(meetingUrl) {
   if (/meet\.google\.com/i.test(meetingUrl))  return 'google_meet';
   if (/zoom\.us/i.test(meetingUrl))           return 'zoom';
@@ -39,95 +42,89 @@ function detectPlatform(meetingUrl) {
 
 /**
  * Send a bot into a meeting.
- * TODO: Map payload shape to screenappai/meeting-bot's POST /bot endpoint.
+ * Generates a UUID botId, POSTs to the platform-specific /join endpoint,
+ * and returns the botId immediately (bot runs asynchronously in the container).
  */
 async function createBot(meetingUrl, botName = 'Meeting Notes Bot', webhookUrl, joinAt = null) {
   const platform = detectPlatform(meetingUrl);
+  const botId    = crypto.randomUUID();
+
+  const endpoint = platform === 'google_meet' ? '/google/join'
+    : platform === 'zoom'                      ? '/zoom/join'
+    :                                            '/microsoft/join';
 
   const payload = {
-    meeting_url:  meetingUrl,
-    bot_name:     botName,
-    platform,
-    webhook_url:  webhookUrl || null,
-    join_at:      joinAt    || null,
-    // Google Meet requires host recording consent — bot leaves after 120s if not granted
-    ...(platform === 'google_meet' ? { consent_timeout_seconds: 120 } : {}),
-    // Deepgram transcription for Google Meet if key is configured
-    ...(platform === 'google_meet' && process.env.DEEPGRAM_API_KEY
-      ? { deepgram_api_key: process.env.DEEPGRAM_API_KEY }
-      : {}),
+    bearerToken: process.env.BOT_BEARER_TOKEN || 'meeting-companion',
+    url:         meetingUrl,
+    name:        botName,
+    teamId:      'meeting-companion',   // logical group identifier
+    timezone:    'UTC',
+    userId:      'companion-server',    // originating service identity
+    botId,
   };
 
-  // TODO: replace stub response with actual API call once bot container is live
-  // const response = await client.post('/bot', payload);
-  // return response.data;
+  const response = await client.post(endpoint, payload);
 
-  console.warn('[BOT CLIENT] createBot() — stub response. Wire to bot container when deployed.');
-  const stubId = `stub-${Date.now()}`;
-  return { id: stubId, status: 'created', meeting_url: meetingUrl, ...payload };
+  if (!response.data.success) {
+    throw new Error(response.data.error || 'Bot service rejected the join request');
+  }
+
+  // Bot is single-job: if busy the container returns 409
+  console.log(`[BOT CLIENT] ${platform} bot accepted — botId=${botId}`);
+  return { id: botId, status: 'created', meeting_url: meetingUrl, platform };
 }
 
 /**
- * Get current status of a bot by ID.
- * TODO: Map to screenappai/meeting-bot's GET /bot/:id endpoint.
+ * Get current status of a bot.
+ * The bot container has no per-bot status endpoint — we check /isbusy
+ * for general availability and rely on Firestore for per-bot state.
  */
 async function getBot(botId) {
-  // TODO: const response = await client.get(`/bot/${botId}`);
-  //       return response.data;
-  console.warn('[BOT CLIENT] getBot() — stub. Wire to bot container.');
-  return { id: botId, status_changes: [] };
+  try {
+    const response = await client.get('/isbusy');
+    return {
+      id:             botId,
+      status_changes: [],
+      isBusy:         !!response.data.data,
+    };
+  } catch (err) {
+    console.warn('[BOT CLIENT] getBot /isbusy failed:', err.message);
+    return { id: botId, status_changes: [] };
+  }
 }
 
 /**
- * List all bots.
- * TODO: Map to screenappai/meeting-bot's GET /bot endpoint.
+ * List all bots — not available in the bot container API.
+ * Meeting history comes from Firestore via db.getAllBotRecords().
  */
 async function listBots() {
-  // TODO: const response = await client.get('/bot');
-  //       return response.data;
-  console.warn('[BOT CLIENT] listBots() — stub. Wire to bot container.');
   return { results: [] };
 }
 
 /**
- * Instruct a bot to leave the meeting immediately.
- * TODO: Map to screenappai/meeting-bot's leave endpoint.
+ * Instruct a bot to leave. The container manages its own lifecycle
+ * (inactivity timeout, meeting end). No remote leave endpoint exists.
  */
 async function leaveBot(botId) {
-  // TODO: const response = await client.post(`/bot/${botId}/leave`);
-  //       return response.data;
-  console.warn('[BOT CLIENT] leaveBot() — stub. Wire to bot container.');
+  console.warn('[BOT CLIENT] leaveBot() — bot manages its own lifecycle. No remote endpoint.');
   return { ok: true };
 }
 
 /**
- * Delete a bot record from the bot service.
- * TODO: Map to screenappai/meeting-bot's DELETE /bot/:id endpoint.
+ * Delete a bot from the bot service. No remote delete endpoint exists;
+ * the bot exits when the meeting ends. Firestore cleanup is handled by server.js.
  */
 async function deleteBot(botId) {
-  // TODO: await client.delete(`/bot/${botId}`);
-  console.warn('[BOT CLIENT] deleteBot() — stub. Wire to bot container.');
+  console.warn('[BOT CLIENT] deleteBot() — no remote endpoint. Firestore record updated by server.js.');
 }
 
-/**
- * deleteRecording kept for API compatibility.
- * In the open-source stack, recordings are in Firebase Storage (GCS) and
- * deleted via firebaseClient.deleteRecording(). This is a no-op stub.
- */
-async function deleteRecording(recordingId) {
-  console.warn('[BOT CLIENT] deleteRecording() — no-op in open-source stack. Use firebaseClient.');
-}
-
-// ── Media retrieval (served from Firebase Storage / Firestore) ─────────────────
-// These replace the Recall.ai pre-signed URL pattern.
-// The bot container uploads recordings directly to GCS; server.js generates
-// fresh signed URLs from the stored storageKey rather than asking the bot.
+// ── Media retrieval ───────────────────────────────────────────────────────────
+// Recordings are uploaded directly to GCS by the bot container.
+// The webhook handler in server.js stores the GCS storage key in Firestore.
+// server.js then generates fresh signed URLs from firebaseClient.getSignedUrl().
 
 /**
- * Get transcript for a bot.
- * In the open-source stack, transcripts are stored inline in the Firestore
- * bot record (transcriptLines[]). This function retrieves them from there.
- * TODO: Replace with Firestore lookup once db.js Firestore migration is complete.
+ * Get transcript — stored inline in Firestore transcriptLines[] by the webhook handler.
  */
 async function getBotTranscript(botId) {
   const { getBotRecord } = require('./db');
@@ -136,21 +133,12 @@ async function getBotTranscript(botId) {
 }
 
 /**
- * Get a fresh signed URL for a bot's recording from Firebase Storage.
- * TODO: Generate GCS signed URL from record.storageKey once storage migration complete.
+ * Get a fresh signed URL for the bot's GCS recording.
+ * Falls back to storageKey → firebaseClient.getSignedUrl() in server.js.
  */
 async function getBotRecordingUrl(botId) {
   const { getBotRecord } = require('./db');
   const record = await getBotRecord(botId);
-
-  // If we have a GCS storageKey, generate a signed URL (TODO: wire to firebaseClient)
-  if (record?.storageKey) {
-    // TODO:
-    // const { getSignedUrl } = require('./firebaseClient');
-    // return getSignedUrl(record.storageKey);
-    console.warn('[BOT CLIENT] getBotRecordingUrl() — storageKey found but signed URL not yet wired.');
-  }
-
   return record?.recordingUrl || null;
 }
 
@@ -160,7 +148,6 @@ module.exports = {
   listBots,
   leaveBot,
   deleteBot,
-  deleteRecording,
   getBotTranscript,
   getBotRecordingUrl,
 };
