@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>8x8 Meeting Bot</title>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      /* 8x8 Brand Palette — tertiary neutrals for dark UI backgrounds */
+      --bg: #26252A;          /* Neutral 1 — deepest background */
+      --surface: #3A3A38;     /* Dark Grey — card / header surfaces */
+      --surface2: #57554E;    /* Neutral 3 — inner card background */
+      --border: #6C6862;      /* Neutral 4 — borders */
+      /* 8x8 Brand — secondary action colors */
+      --accent: #04888A;      /* Deep Teal — primary CTA */
+      --accent-hover: #037070;
+      --green: #72AD6C;       /* Deep Green */
+      --red: #F37944;         /* Deep Orange — danger / destructive */
+      --yellow: #FFB500;      /* Vibrant Orange — warning / in-progress */
+      /* 8x8 Brand — text */
+      --text: #EBEAE1;        /* Off White */
+      --text-muted: #8D887E;  /* Neutral 5 */
+      --radius: 10px;
+    }
+    body { font-family: 'Archivo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 2rem; display: flex; align-items: center; gap: 0; height: 60px; }
+    .logo-8x8 { display: flex; align-items: center; flex-shrink: 0; }
+    .logo-8x8 svg { height: 26px; width: auto; }
+    .header-divider { width: 1px; height: 22px; background: var(--border); margin: 0 1rem; flex-shrink: 0; }
+    .header-app-name { font-size: 0.8125rem; color: var(--text-muted); font-weight: 400; letter-spacing: 0.01em; }
+    /* ── Tabs ───────────────────────────────────────────────────────────── */
+    .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); padding: 0 2rem; }
+    .tab-btn { padding: 0.85rem 1.2rem; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.875rem; font-weight: 700; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.15s, border-color 0.15s; font-family: inherit; }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    /* ── Layout ─────────────────────────────────────────────────────────── */
+    .tab-content { display: none; padding: 2rem; max-width: 860px; margin: 0 auto; }
+    .tab-content.active { display: block; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1rem; }
+    .card h2 { font-size: 1rem; font-weight: 700; margin-bottom: 1.25rem; }
+    label { display: block; font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.4rem; font-weight: 700; }
+    input[type="text"], input[type="url"], input[type="datetime-local"] {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); padding: 0.625rem 0.875rem; font-size: 0.875rem; outline: none;
+      transition: border-color 0.15s; font-family: inherit;
+    }
+    input:focus { border-color: var(--accent); }
+    /* ── Focus visible — WCAG 2.1 AA keyboard navigation ─────────────────── */
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+    input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-radius: 4px; }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    input[type="datetime-local"]::-webkit-calendar-picker-indicator { filter: invert(0.6); }
+    .form-row { margin-bottom: 1rem; }
+    /* ── Buttons — 8x8 brand spec: Deep Teal primary, Telegraf Bold/Title Case ── */
+    .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.625rem 1.25rem; border: none; border-radius: 6px; font-size: 0.875rem; font-weight: 700; cursor: pointer; transition: background 0.15s, opacity 0.15s; font-family: inherit; text-decoration: none; letter-spacing: 0.01em; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+    .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover:not(:disabled) { background: var(--border); }
+    .btn-danger { background: var(--red); color: #fff; }
+    .btn-danger:hover:not(:disabled) { background: #d4652e; }
+    .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.8125rem; }
+    /* ── Badges — 8x8 secondary colour palette ─────────────────────────── */
+    .badge { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
+    .badge-green  { background: rgba(114,173,108,0.2);  color: #72AD6C; }  /* Deep Green */
+    .badge-red    { background: rgba(243,121,68,0.2);   color: #F37944; }  /* Deep Orange */
+    .badge-yellow { background: rgba(255,181,0,0.2);    color: #FFB500; }  /* Vibrant Orange */
+    .badge-gray   { background: rgba(141,136,126,0.15); color: var(--text-muted); }
+    .badge-purple { background: rgba(129,106,174,0.2);  color: #816AAE; }  /* Deep Purple — Teams */
+    .badge-blue   { background: rgba(4,136,138,0.2);    color: #04888A; }  /* Deep Teal — Zoom */
+    .badge-meet   { background: rgba(52,168,83,0.18);   color: #34A853; }  /* Google Green — Google Meet */
+    /* ── Alerts ─────────────────────────────────────────────────────────── */
+    .alert { padding: 0.75rem 1rem; border-radius: 6px; font-size: 0.875rem; margin-bottom: 1rem; }
+    .alert-success { background: rgba(114,173,108,0.12); border: 1px solid rgba(114,173,108,0.35); color: #72AD6C; }
+    .alert-error   { background: rgba(243,121,68,0.12);  border: 1px solid rgba(243,121,68,0.35);  color: #F37944; }
+    .alert-info    { background: rgba(4,136,138,0.12);   border: 1px solid rgba(4,136,138,0.35);   color: #04888A; }
+    .hidden { display: none !important; }
+    .meeting-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.625rem; display: flex; align-items: flex-start; gap: 1rem; }
+    .meeting-item-body { flex: 1; min-width: 0; }
+    .meeting-item-title { font-weight: 600; font-size: 0.9375rem; margin-bottom: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .meeting-item-meta { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+    .meeting-item-url { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .meeting-item-actions { display: flex; gap: 0.5rem; flex-shrink: 0; align-items: center; flex-wrap: wrap; }
+    .connect-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1.5rem; }
+    .connect-banner-text strong { color: var(--text); display: block; margin-bottom: 0.15rem; font-size: 0.9rem; }
+    .connect-banner-text span { font-size: 0.8125rem; color: var(--text-muted); }
+    .transcript-viewer { background: var(--surface2); border-radius: 8px; padding: 1.25rem; max-height: 420px; overflow-y: auto; }
+    .transcript-line { margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .transcript-line:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+    .transcript-speaker { font-size: 0.8125rem; font-weight: 700; color: var(--accent); margin-bottom: 0.2rem; }
+    .transcript-ts { font-size: 0.75rem; color: var(--text-muted); margin-left: 0.5rem; font-weight: 400; }
+    .transcript-text { font-size: 0.9rem; line-height: 1.6; }
+    video.recording-player { width: 100%; border-radius: 8px; background: #000; margin-top: 0.5rem; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 100%; max-width: 760px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; }
+    .modal-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .modal-header h3 { font-size: 1rem; font-weight: 600; }
+    .modal-body { padding: 1.5rem; overflow-y: auto; flex: 1; }
+    .modal-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.25rem; line-height: 1; padding: 0.25rem; }
+    .modal-close:hover { color: var(--text); }
+    .section-label { font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.75rem; }
+    .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.25); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.875rem; }
+    /* ── Admin tables ────────────────────────────────────────────────────── */
+    .admin-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    .admin-table th { padding: 0.7rem 1rem; text-align: left; font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; border-bottom: 1px solid var(--border); }
+    .admin-table th.num, .admin-table td.num { text-align: right; }
+    .admin-table td { padding: 0.75rem 1rem; border-bottom: 1px solid rgba(108,104,98,0.25); vertical-align: middle; }
+    .admin-table tr:last-child td { border-bottom: none; }
+    .admin-table tr.totals-row td { font-weight: 700; background: var(--surface2); border-top: 2px solid var(--border); }
+    .admin-table tr.warn-amber td { background: rgba(255,181,0,0.06); }
+    .admin-table tr.warn-red   td { background: rgba(243,121,68,0.07); }
+    .cost-free   { color: var(--green); font-size: 0.8rem; }
+    .cost-warn   { color: var(--yellow); font-size: 0.8rem; }
+    .cost-over   { color: var(--red); font-size: 0.8rem; font-weight: 700; }
+    .admin-cb { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+    /* ── Help button ─────────────────────────────────────────────────────── */
+    .header-right { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+    .logout-btn { background: none; border: 1.5px solid var(--border); border-radius: 6px; padding: 0.3rem 0.75rem; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; font-weight: 700; font-family: inherit; transition: border-color 0.15s, color 0.15s; }
+    .logout-btn:hover { border-color: var(--red); color: var(--red); }
+    .help-btn { background: none; border: 1.5px solid var(--border); border-radius: 50%; width: 32px; height: 32px; color: var(--text-muted); cursor: pointer; font-size: 0.9375rem; font-weight: 700; display: flex; align-items: center; justify-content: center; transition: border-color 0.15s, color 0.15s; flex-shrink: 0; font-family: inherit; }
+    .help-btn:hover { border-color: var(--accent); color: var(--accent); }
+    /* ── Help modal content ──────────────────────────────────────────────── */
+    .help-section { margin-bottom: 1.75rem; }
+    .help-section:last-child { margin-bottom: 0; }
+    .help-section-title { font-size: 0.9375rem; font-weight: 700; color: var(--text); margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
+    .help-section-title .tab-pill { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 0.15rem 0.6rem; font-size: 0.75rem; font-weight: 700; color: var(--accent); }
+    .help-steps { list-style: none; padding: 0; margin: 0; }
+    .help-steps li { display: flex; gap: 0.75rem; padding: 0.55rem 0; border-bottom: 1px solid rgba(108,104,98,0.35); font-size: 0.875rem; line-height: 1.5; }
+    .help-steps li:last-child { border-bottom: none; }
+    .help-step-num { flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.7rem; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 0.1rem; }
+    .help-tip { margin-top: 0.75rem; padding: 0.65rem 0.9rem; background: rgba(4,136,138,0.08); border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0; font-size: 0.8125rem; color: var(--text-muted); line-height: 1.5; }
+    .help-tip strong { color: var(--text); }
+    /* ── Landing page ────────────────────────────────────────────────────── */
+    #landing { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - 60px); padding: 3rem 1.5rem; }
+    .landing-inner { width: 100%; max-width: 680px; text-align: center; }
+    .landing-eyebrow { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 1rem; }
+    .landing-headline { font-size: clamp(1.75rem, 4vw, 2.75rem); font-weight: 700; color: var(--text); line-height: 1.2; margin-bottom: 1.25rem; }
+    .landing-headline span { color: var(--accent); }
+    .landing-body { font-size: 1rem; color: var(--text-muted); line-height: 1.7; max-width: 520px; margin: 0 auto 2.5rem; }
+    .landing-cta { display: inline-flex; align-items: center; gap: 0.65rem; background: var(--accent); color: #fff; font-weight: 700; font-size: 0.9375rem; font-family: inherit; padding: 0.8rem 1.75rem; border: none; border-radius: 8px; cursor: pointer; text-decoration: none; transition: background 0.15s, transform 0.1s; letter-spacing: 0.01em; margin-bottom: 3rem; }
+    .landing-cta:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .landing-cta svg { flex-shrink: 0; }
+    .landing-divider { width: 48px; height: 2px; background: var(--border); margin: 0 auto 2rem; }
+    .features-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 1.25rem; }
+    .features-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.875rem; text-align: left; }
+    @media (max-width: 520px) { .features-grid { grid-template-columns: 1fr; } }
+    .feature-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.125rem; display: flex; align-items: flex-start; gap: 0.75rem; }
+    .feature-icon { width: 34px; height: 34px; border-radius: 8px; background: rgba(4,136,138,0.12); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .feature-icon svg { width: 18px; height: 18px; stroke: var(--accent); fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+    .feature-text { font-size: 0.8375rem; color: var(--text); line-height: 1.5; font-weight: 400; }
+    .landing-footer { margin-top: 2.5rem; font-size: 0.75rem; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+
+<header>
+  <!-- 8x8 logo — white version for dark background, per brand guidelines -->
+  <div class="logo-8x8">
+    <svg viewBox="0 0 96 38" height="26" xmlns="http://www.w3.org/2000/svg" aria-label="8x8">
+      <text x="0" y="32" font-family="Archivo, -apple-system, sans-serif" font-weight="800" font-size="38" fill="#FFFFFF" letter-spacing="-1">8x8</text>
+    </svg>
+  </div>
+  <div class="header-divider"></div>
+  <span class="header-app-name">Meeting Bot</span>
+  <div class="header-right">
+    <button class="logout-btn hidden" id="btn-header-logout" onclick="logOut()" title="Log out">Log Out</button>
+    <button class="help-btn" onclick="openHelp()" title="Help" aria-label="Open help guide">?</button>
+  </div>
+</header>
+
+<!-- ── Landing page (shown when not connected) ────────────────────────── -->
+<div id="landing">
+  <div class="landing-inner">
+    <p class="landing-eyebrow">8x8 Meeting Bot</p>
+    <h1 class="landing-headline">Meetings Companion for<br><span>Teams, Zoom &amp; Google Meet</span></h1>
+    <p class="landing-body">Log in to sync your Google Calendar and assign your personal Meetings Bot to your Teams, Zoom, and Google Meet meetings.</p>
+    <a href="/auth/google" class="landing-cta">
+      <!-- Google "G" mark -->
+      <svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M19.6 10.23c0-.68-.06-1.36-.17-2H10v3.79h5.4a4.62 4.62 0 0 1-2 3.03v2.52h3.24c1.9-1.75 3-4.32 3-7.34z" fill="#4285F4"/><path d="M10 20c2.7 0 4.97-.9 6.63-2.43l-3.24-2.52a6.03 6.03 0 0 1-3.39.94 6 6 0 0 1-5.65-4.14H1.04v2.6A10 10 0 0 0 10 20z" fill="#34A853"/><path d="M4.35 11.85A5.99 5.99 0 0 1 4.04 10c0-.64.11-1.27.31-1.85V5.55H1.04A10 10 0 0 0 0 10c0 1.61.38 3.13 1.04 4.45l3.31-2.6z" fill="#FBBC05"/><path d="M10 3.96a5.43 5.43 0 0 1 3.84 1.5l2.87-2.87A9.63 9.63 0 0 0 10 0 10 10 0 0 0 1.04 5.55l3.31 2.6A6 6 0 0 1 10 3.96z" fill="#EA4335"/></svg>
+      Sign In with Google
+    </a>
+    <div class="landing-divider"></div>
+    <p class="features-label">What you can do</p>
+    <div class="features-grid">
+      <!-- Calendar sync -->
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </div>
+        <span class="feature-text">Sync Google Calendar for the next 30 days</span>
+      </div>
+      <!-- Assign bot from calendar -->
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
+        </div>
+        <span class="feature-text">View upcoming Teams, Zoom, and Google Meet meetings and assign a bot</span>
+      </div>
+      <!-- Ad hoc bot -->
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </div>
+        <span class="feature-text">Assign a bot ad hoc using your Teams, Zoom, or Google Meet link</span>
+      </div>
+      <!-- Recordings + transcripts -->
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+        </div>
+        <span class="feature-text">Review meeting recordings and transcripts</span>
+      </div>
+      <!-- AI summary / transcript export -->
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <span class="feature-text">Request a meeting summary or download the transcript for your preferred LLM</span>
+      </div>
+      <!-- Download recordings -->
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </div>
+        <span class="feature-text">Download meeting recordings</span>
+      </div>
+    </div>
+    <p class="landing-footer">© 8x8, Inc. 2026 &nbsp;·&nbsp; Your data stays private — each user's session is isolated</p>
+  </div>
+</div>
+
+<div id="tabs-nav" class="tabs hidden">
+  <button class="tab-btn active" data-tab="calendar">Google Calendar</button>
+  <button class="tab-btn hidden" data-tab="history" id="tab-btn-history">Meeting History</button>
+  <button class="tab-btn hidden" data-tab="schedule" id="tab-btn-schedule">Schedule Bot</button>
+</div>
+
+<!-- Schedule Bot tab -->
+<div class="tab-content" id="tab-schedule">
+  <div class="alert alert-error" style="margin-bottom:1rem;" role="note">
+    <span aria-hidden="true">&#9888;</span>&nbsp; <strong>Recordings are automatically deleted 72 hours after the meeting ends.</strong> Download or save anything you need before then.
+  </div>
+  <div class="card">
+    <h2>Deploy a Bot to a Meeting</h2>
+    <div id="schedule-alert" class="alert hidden"></div>
+    <div class="form-row">
+      <label for="meeting-url">Meeting URL <span style="font-weight:400;color:var(--text-muted)">(Teams, Zoom or Google Meet)</span></label>
+      <input type="url" id="meeting-url" placeholder="https://teams.microsoft.com/l/meetup-join/... or https://zoom.us/j/... or https://meet.google.com/..." />
+    </div>
+    <div class="form-row">
+      <label for="bot-name">Bot Name <span style="font-weight:400">(optional)</span></label>
+      <input type="text" id="bot-name" placeholder="e.g. Your Name's Bot" />
+    </div>
+    <div class="form-row">
+      <label for="join-at">Schedule For <span style="font-weight:400">(optional — leave blank to join immediately)</span></label>
+      <input type="datetime-local" id="join-at" />
+    </div>
+    <button class="btn btn-primary" id="btn-deploy" onclick="deployBot()">Deploy Bot</button>
+  </div>
+
+  <div class="card" style="margin-top:0;display:flex;align-items:center;justify-content:space-between;padding:1rem 1.5rem;">
+    <div>
+      <div style="font-size:0.875rem;font-weight:700;margin-bottom:0.2rem;">Admin Panel</div>
+      <div style="font-size:0.8125rem;color:var(--text-muted);">View usage stats and manage recordings.</div>
+    </div>
+    <button class="btn btn-secondary btn-sm" id="btn-open-admin" onclick="openAdminPanel()" aria-label="Open Admin Panel"><span aria-hidden="true">&#9881;</span> Admin</button>
+  </div>
+</div>
+
+<!-- Google Calendar tab -->
+<div class="tab-content active" id="tab-calendar">
+  <div id="cal-connect-banner" class="connect-banner">
+    <div class="connect-banner-text">
+      <strong>Connect Google Calendar</strong>
+      <span>Read-only access to find Teams, Zoom, and Google Meet links in your upcoming events.</span>
+    </div>
+    <a href="/auth/google" class="btn btn-primary">Connect Google Calendar</a>
+  </div>
+  <div id="cal-connected-banner" class="connect-banner hidden">
+    <div class="connect-banner-text">
+      <strong style="color:#72AD6C"><span aria-hidden="true">&#10003;</span> Google Calendar connected</strong>
+      <span>Showing Teams, Zoom, and Google Meet meetings in the next 30 days.</span>
+    </div>
+    <div style="display:flex;gap:0.5rem">
+      <button class="btn btn-secondary btn-sm" onclick="loadCalendarMeetings()" aria-label="Refresh calendar meetings"><span aria-hidden="true">&#8635;</span> Refresh</button>
+      <button class="btn btn-secondary btn-sm" onclick="disconnectCalendar()">Disconnect</button>
+    </div>
+  </div>
+  <div class="alert alert-error" style="margin-bottom:1rem;" role="note">
+    <span aria-hidden="true">&#9888;</span>&nbsp; <strong>Recordings are automatically deleted 72 hours after the meeting ends.</strong> Download or save anything you need before then.
+  </div>
+  <div id="cal-alert" class="alert hidden"></div>
+  <div id="cal-list"><div class="empty-state">Connect Google Calendar to see upcoming Teams, Zoom, and Google Meet meetings.</div></div>
+</div>
+
+<!-- Meeting History tab -->
+<div class="tab-content" id="tab-history">
+  <div class="alert alert-error" style="margin-bottom:1rem;" role="note">
+    <span aria-hidden="true">&#9888;</span>&nbsp; <strong>Recordings are automatically deleted 72 hours after the meeting ends.</strong> Download or save anything you need before then.
+  </div>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
+    <button class="btn btn-secondary btn-sm" onclick="loadHistory()" aria-label="Refresh meeting history"><span aria-hidden="true">&#8635;</span> Refresh</button>
+  </div>
+  <div id="history-alert" class="alert hidden"></div>
+  <div id="history-list"><div class="empty-state">Loading...</div></div>
+</div>
+
+<!-- Admin Modal (Alton only) -->
+<div class="modal-overlay hidden" id="admin-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title" onclick="maybeCloseAdminModal(event)">
+  <div class="modal" style="max-width:900px">
+    <div class="modal-header">
+      <h3 id="admin-modal-title"><span aria-hidden="true">&#9881;</span> Admin Panel</h3>
+      <button class="modal-close" onclick="closeAdminModal()" aria-label="Close Admin Panel">&#10005;</button>
+    </div>
+    <div class="modal-body" id="admin-modal-body">
+      <!-- dynamically populated -->
+    </div>
+  </div>
+</div>
+
+<!-- Not Authorized Modal -->
+<div class="modal-overlay hidden" id="notauth-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="notauth-modal-title" onclick="closeNotAuthModal()">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <h3 id="notauth-modal-title">Access Restricted</h3>
+      <button class="modal-close" onclick="closeNotAuthModal()" aria-label="Close dialog">&#10005;</button>
+    </div>
+    <div class="modal-body" style="text-align:center;padding:2rem 1.5rem">
+      <div style="font-size:2.5rem;margin-bottom:1rem">&#128274;</div>
+      <p style="color:var(--text);font-weight:700;margin-bottom:0.5rem;font-size:1rem">Not Authorized</p>
+      <p style="color:var(--text-muted);font-size:0.9rem;line-height:1.6">The Admin panel is restricted to authorized administrators only. Please contact your admin if you need access.</p>
+      <button class="btn btn-secondary" style="margin-top:1.5rem" onclick="closeNotAuthModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Transcript + Recording Modal -->
+<div class="modal-overlay hidden" id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title" onclick="maybeCloseModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">Meeting Details</h3>
+      <button class="modal-close" onclick="closeModal()" aria-label="Close meeting details">&#10005;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<!-- Help Modal -->
+<div class="modal-overlay hidden" id="help-overlay" role="dialog" aria-modal="true" aria-labelledby="help-modal-title" onclick="maybeCloseHelp(event)">
+  <div class="modal" style="max-width:620px">
+    <div class="modal-header">
+      <h3 id="help-modal-title">How to use Meeting Bot</h3>
+      <button class="modal-close" onclick="closeHelp()" aria-label="Close help guide">&#10005;</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Sign in -->
+      <div class="help-section">
+        <div class="help-section-title">
+          <span class="tab-pill" style="background:rgba(4,136,138,0.15);color:var(--accent);">Getting started</span>
+          Sign in to access your bots
+        </div>
+        <ul class="help-steps">
+          <li><span class="help-step-num">1</span><span>Click <strong>Sign In with Google</strong> on the landing page. This identifies you so your recordings stay private — only you can see your bots.</span></li>
+          <li><span class="help-step-num">2</span><span>After signing in you land on the <strong>Schedule Bot</strong> tab. You can start deploying bots immediately — no further setup required.</span></li>
+          <li><span class="help-step-num">3</span><span>To also see your upcoming calendar meetings, click the <strong>Google Calendar</strong> tab and connect your calendar. This is optional.</span></li>
+          <li><span class="help-step-num">4</span><span>Use <strong>Log Out</strong> in the top-right corner to end your session. <em>Disconnect</em> on the Google Calendar tab only removes calendar sync — it does not log you out.</span></li>
+        </ul>
+        <div class="help-tip"><strong>Privacy:</strong> Each user sees only their own recordings. <strong>Recordings are automatically deleted 72 hours after the meeting ends</strong> — download or save anything you need before then.</div>
+      </div>
+
+      <!-- Google Calendar tab -->
+      <div class="help-section">
+        <div class="help-section-title">
+          <span class="tab-pill">Google Calendar</span>
+          Auto-schedule from your calendar <em style="font-weight:400;color:var(--text-muted)">(optional)</em>
+        </div>
+        <ul class="help-steps">
+          <li><span class="help-step-num">1</span><span>Click <strong>Connect Google Calendar</strong> to grant read-only access so the bot can find Teams, Zoom, and Google Meet links in your upcoming events.</span></li>
+          <li><span class="help-step-num">2</span><span>Your upcoming meetings that contain a <strong>Teams, Zoom, or Google Meet join link</strong> appear in the list with the meeting title, time, and platform badge.</span></li>
+          <li><span class="help-step-num">3</span><span>Click <strong>Schedule Bot</strong> next to any meeting. The bot will automatically join at the scheduled start time and begin recording.</span></li>
+          <li><span class="help-step-num">4</span><span>Once scheduled, the button changes to <strong>✓ Scheduled</strong> with a <em>Cancel</em> option. Click Cancel at any time before the meeting starts.</span></li>
+          <li><span class="help-step-num">5</span><span>Use <strong>Refresh</strong> to re-sync your calendar if you've added new meetings since the page loaded.</span></li>
+        </ul>
+        <div class="help-tip"><strong>Tip:</strong> Only meetings with a Teams, Zoom, or Google Meet join link in the invite will appear — events without a link are skipped automatically.</div>
+      </div>
+
+      <!-- Schedule Bot tab -->
+      <div class="help-section">
+        <div class="help-section-title">
+          <span class="tab-pill">Schedule Bot</span>
+          Deploy a bot to any meeting URL
+        </div>
+        <ul class="help-steps">
+          <li><span class="help-step-num">1</span><span>Paste a <strong>Teams, Zoom, or Google Meet URL</strong> into the Meeting URL field. <code>teams.microsoft.com</code>, <code>zoom.us/j/</code>, and <code>meet.google.com</code> links are all supported.</span></li>
+          <li><span class="help-step-num">2</span><span><strong>Bot Name</strong> is optional — defaults to "[Your Name]'s Bot". Participants in the meeting lobby will see this name when the bot requests to join.</span></li>
+          <li><span class="help-step-num">3</span><span>Leave <strong>Schedule For</strong> blank to have the bot join <strong>immediately</strong>, or set a date and time to have it join automatically at the start of the meeting.</span></li>
+          <li><span class="help-step-num">4</span><span>Click <strong>Deploy Bot</strong>. A confirmation appears and the bot will join (or wait to join) the meeting.</span></li>
+          <li><span class="help-step-num">5</span><span>After the meeting, go to <strong>Meeting History</strong> to view the transcript and recording.</span></li>
+        </ul>
+        <div class="help-tip"><strong>Tip:</strong> For Teams meetings the bot must be admitted from the lobby by a meeting participant — it won't join automatically if nobody admits it.</div>
+      </div>
+
+      <!-- Meeting History tab -->
+      <div class="help-section">
+        <div class="help-section-title">
+          <span class="tab-pill">Meeting History</span>
+          Review recordings and transcripts
+        </div>
+        <ul class="help-steps">
+          <li><span class="help-step-num">1</span><span>Shows <strong>your bots</strong> — past and present — pulled live from Recall.ai. Other users' recordings are not visible.</span></li>
+          <li><span class="help-step-num">2</span><span>Each entry shows the meeting title (or URL), platform badge, bot status, and storage age with a colour-coded cost indicator.</span></li>
+          <li><span class="help-step-num">3</span><span>Status badges show the bot's lifecycle: <em>In Call</em>, <em>Done</em>, <em>Joining</em>, <em>Scheduled</em>, <em>Cancelled</em>, etc.</span></li>
+          <li><span class="help-step-num">4</span><span>Click <strong>View</strong> on any completed meeting to open the full transcript (speaker-labelled) and play back the recording.</span></li>
+          <li><span class="help-step-num">5</span><span>Click <strong>Delete</strong> to remove the recording manually at any time. Recordings are <strong>automatically deleted after 72 hours</strong> — no action needed if you don't need them.</span></li>
+        </ul>
+        <div class="help-tip"><strong>72-hour policy:</strong> All recordings and media are automatically purged 72 hours after the meeting ends. Download the recording or transcript before that window closes if you need them.</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
