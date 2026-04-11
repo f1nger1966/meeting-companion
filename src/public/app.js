@@ -334,6 +334,8 @@ document.addEventListener('keydown', function(e) {
 async function deployBot() {
   const url = document.getElementById('meeting-url').value.trim();
   const name = document.getElementById('bot-name').value.trim();
+  const titleInput = document.getElementById('meeting-title');
+  const meetingTitle = titleInput ? titleInput.value.trim() : '';
   const joinAt = document.getElementById('join-at').value;
   const isValidMeetingUrl = url.includes('teams.microsoft.com') || url.includes('teams.live.com') || url.includes('zoom.us') || url.includes('meet.google.com');
   if (!url || !isValidMeetingUrl) { showAlert('schedule-alert', 'Please enter a valid Teams, Zoom, or Google Meet meeting URL.', 'error'); return; }
@@ -344,6 +346,7 @@ async function deployBot() {
 
   try {
     const body = { meeting_url: url, bot_name: name || undefined };
+    if (meetingTitle) body.meeting_title = meetingTitle;
     if (joinAt) body.join_at = new Date(joinAt).toISOString();
 
     const res = await fetch('/bot/join', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
@@ -356,6 +359,7 @@ async function deployBot() {
     showAlert('schedule-alert', msg, 'success');
     document.getElementById('meeting-url').value = '';
     document.getElementById('bot-name').value = '';
+    if (titleInput) titleInput.value = '';
     document.getElementById('join-at').value = '';
   } catch (err) {
     showAlert('schedule-alert', 'Error: ' + err.message, 'error');
@@ -405,7 +409,11 @@ async function initCalendar() {
       if (pd.firstName) {
         googleFirstName = pd.firstName;
         const nameInput = document.getElementById('bot-name');
-        if (nameInput && !nameInput.value) nameInput.placeholder = `${googleFirstName}'s Bot`;
+        // Pre-fill the value (not just placeholder) so the user can see exactly what
+        // name will appear in the meeting room, and can edit it before deploying.
+        if (nameInput && !nameInput.value) {
+          nameInput.value = `${googleFirstName}'s Bot`;
+        }
       }
     } catch (_) {}
 
