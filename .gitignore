@@ -1,5 +1,33 @@
+# Dependencies
 node_modules/
+
+# Environment & secrets — NEVER commit these
 .env
+.env.local
+.env.production
+.env.*
+
+# GCP / Firebase service account keys
+*-credentials.json
+*service-account*.json
+*serviceaccount*.json
+altonailabs-*.json
+gcp-key*.json
+firebase-adminsdk*.json
+
+# Runtime data
 data/
 *.db
+*.sqlite
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# macOS
 .DS_Store
+
+# Editor
+.vscode/
+.idea/
